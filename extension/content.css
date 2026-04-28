@@ -1,0 +1,56 @@
+#pinterest-to-figma-overlay-root {
+  inset: 0;
+  pointer-events: none;
+  position: fixed;
+  z-index: 2147483647;
+}
+
+.pinterest-to-figma-add-button {
+  -webkit-appearance: none;
+  align-items: center;
+  appearance: none;
+  background: #e60023;
+  border: 0;
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.24);
+  color: #fff;
+  cursor: pointer;
+  display: grid;
+  font: 700 28px/36px Arial, sans-serif;
+  height: 36px;
+  justify-content: center;
+  margin: 0;
+  opacity: 0;
+  padding: 0;
+  place-items: center;
+  pointer-events: none;
+  position: fixed;
+  text-align: center;
+  transition: background 120ms ease, opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
+  visibility: hidden;
+  width: 36px;
+}
+
+.pinterest-to-figma-add-button[data-visible='true'] {
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+}
+
+.pinterest-to-figma-add-button:hover,
+.pinterest-to-figma-add-button:focus {
+  transform: scale(1.06);
+}
+
+.pinterest-to-figma-add-button[data-state='sending'] {
+  background: #767676;
+}
+
+.pinterest-to-figma-add-button[data-state='sent'],
+.pinterest-to-figma-add-button[data-state='sent-warning'] {
+  background: #148a42;
+}
+
+.pinterest-to-figma-add-button[data-state='error'] {
+  background: #b00020;
+}

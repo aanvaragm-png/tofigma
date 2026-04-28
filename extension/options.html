@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pinterest to Figma Settings</title>
+    <link rel="stylesheet" href="settings.css">
+  </head>
+  <body>
+    <main class="panel wide">
+      <h1>Pinterest to Figma Settings</h1>
+      <p class="hint">Hold Shift and click any image to send it to Figma.</p>
+      <label>
+        Backend URL
+        <input id="backendUrl" type="url" placeholder="https://pinterest-to-figma.onrender.com">
+      </label>
+      <label>
+        Session ID
+        <input id="sessionId" type="text" minlength="6" maxlength="80" spellcheck="false">
+      </label>
+      <label class="checkbox">
+        <input id="showPinterestButtons" type="checkbox">
+        Show Pinterest + buttons
+      </label>
+      <div class="actions">
+        <button id="save" type="button">Save</button>
+        <button id="regenerate" type="button">New ID</button>
+      </div>
+      <p id="status" role="status"></p>
+    </main>
+    <script src="settings.js"></script>
+  </body>
+</html>

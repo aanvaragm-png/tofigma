@@ -1,0 +1,315 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        background: var(--figma-color-bg);
+        color: var(--figma-color-text);
+        font: 12px/1.45 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        margin: 0;
+      }
+
+      main {
+        padding: 16px;
+      }
+
+      h1 {
+        font-size: 15px;
+        margin: 0 0 14px;
+      }
+
+      label {
+        display: block;
+        font-weight: 600;
+        margin: 12px 0;
+      }
+
+      input {
+        background: var(--figma-color-bg-secondary);
+        border: 1px solid var(--figma-color-border);
+        border-radius: 5px;
+        color: var(--figma-color-text);
+        display: block;
+        font: inherit;
+        margin-top: 6px;
+        padding: 8px;
+        width: 100%;
+      }
+
+      .actions {
+        display: flex;
+        gap: 8px;
+        margin: 14px 0;
+      }
+
+      button {
+        background: var(--figma-color-bg-brand);
+        border: 0;
+        border-radius: 5px;
+        color: var(--figma-color-text-onbrand);
+        cursor: pointer;
+        font: 600 12px/1 Inter, sans-serif;
+        padding: 9px 11px;
+      }
+
+      button.secondary {
+        background: var(--figma-color-bg-secondary);
+        color: var(--figma-color-text);
+      }
+
+      #status {
+        background: var(--figma-color-bg-secondary);
+        border-radius: 5px;
+        min-height: 64px;
+        padding: 10px;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Pinterest References</h1>
+      <label>
+        Backend URL
+        <input id="backendUrl" type="url" placeholder="https://pinterest-to-figma.onrender.com">
+      </label>
+      <label>
+        Session ID
+        <input id="sessionId" type="text" minlength="6" maxlength="80" spellcheck="false">
+      </label>
+      <div class="actions">
+        <button id="connect" type="button">Connect</button>
+        <button id="pull" class="secondary" type="button">Pull Now</button>
+        <button id="pause" class="secondary" type="button">Pause</button>
+      </div>
+      <div id="status" role="status">Not connected.</div>
+    </main>
+    <script>
+      const DEFAULT_BACKEND_URL = 'https://pinterest-to-figma.onrender.com';
+
+      const backendUrlInput = document.getElementById('backendUrl');
+      const sessionIdInput = document.getElementById('sessionId');
+      const connectButton = document.getElementById('connect');
+      const pullButton = document.getElementById('pull');
+      const pauseButton = document.getElementById('pause');
+      const statusNode = document.getElementById('status');
+
+      let polling = false;
+      let pollTimer = 0;
+      let busy = false;
+      let pendingAck = new Map();
+
+      parent.postMessage({ pluginMessage: { type: 'load-settings' } }, '*');
+
+      connectButton.addEventListener('click', async () => {
+        if (!saveSettings()) {
+          return;
+        }
+
+        polling = true;
+        connectButton.textContent = 'Resume';
+        setStatus('Connected. Waiting for images...');
+        await poll();
+      });
+
+      pullButton.addEventListener('click', async () => {
+        if (!saveSettings()) {
+          return;
+        }
+
+        await poll();
+      });
+
+      pauseButton.addEventListener('click', () => {
+        polling = false;
+        window.clearTimeout(pollTimer);
+        setStatus('Paused.');
+      });
+
+      window.onmessage = async (event) => {
+        const message = event.data.pluginMessage;
+
+        if (!message) {
+          return;
+        }
+
+        try {
+          if (message.type === 'settings-loaded') {
+            backendUrlInput.value = message.settings.backendUrl || DEFAULT_BACKEND_URL;
+            sessionIdInput.value = message.settings.sessionId || '';
+            return;
+          }
+
+          if (message.type === 'inserted') {
+            const settings = getSettings();
+            await ackImage(settings.backendUrl, settings.sessionId, message.id);
+            pendingAck.delete(message.id);
+            setStatus('Inserted image and acknowledged queue item.');
+            return;
+          }
+
+          if (message.type === 'error') {
+            if (message.id) {
+              pendingAck.delete(message.id);
+            }
+            setStatus(message.message || 'Plugin error');
+          }
+        } catch (error) {
+          if (message.id) {
+            pendingAck.delete(message.id);
+          }
+          setStatus(formatNetworkError(error));
+        }
+      };
+
+      async function poll() {
+        window.clearTimeout(pollTimer);
+
+        if (busy) {
+          scheduleNextPoll();
+          return;
+        }
+
+        const settings = getSettings();
+        if (!settings) {
+          return;
+        }
+
+        busy = true;
+
+        try {
+          const response = await fetch(`${settings.backendUrl}/api/images?sessionId=${encodeURIComponent(settings.sessionId)}`);
+          const body = await response.json().catch(() => ({}));
+
+          if (!response.ok) {
+            throw new Error(body.error || `Backend error ${response.status}`);
+          }
+
+          if (!body.items || body.items.length === 0) {
+            setStatus('Queue is empty.');
+            return;
+          }
+
+          setStatus(`Found ${body.items.length} image(s). Importing...`);
+
+          for (const item of body.items) {
+            if (pendingAck.has(item.id)) {
+              continue;
+            }
+
+            pendingAck.set(item.id, true);
+            const imageData = item.imageData || await fetchUrlAsDataUrl(item.url);
+            parent.postMessage({ pluginMessage: { type: 'insert-image', item: { ...item, imageData } } }, '*');
+            break;
+          }
+        } catch (error) {
+          setStatus(formatNetworkError(error));
+        } finally {
+          busy = false;
+          scheduleNextPoll();
+        }
+      }
+
+      function scheduleNextPoll() {
+        if (polling) {
+          pollTimer = window.setTimeout(poll, 2500);
+        }
+      }
+
+      function saveSettings() {
+        const settings = getSettings();
+
+        if (!settings) {
+          return false;
+        }
+
+        parent.postMessage({
+          pluginMessage: {
+            type: 'save-settings',
+            backendUrl: settings.backendUrl,
+            sessionId: settings.sessionId
+          }
+        }, '*');
+
+        return true;
+      }
+
+      function getSettings() {
+        const backendUrl = backendUrlInput.value.trim().replace(/\/+$/, '');
+        const sessionId = sessionIdInput.value.trim();
+
+        if (!/^https?:\/\//i.test(backendUrl)) {
+          setStatus('Backend URL must start with http:// or https://');
+          return null;
+        }
+
+        if (!/^[a-zA-Z0-9_-]{6,80}$/.test(sessionId)) {
+          setStatus('Invalid sessionId. Use 6-80 letters, numbers, _ or -.');
+          return null;
+        }
+
+        return { backendUrl, sessionId };
+      }
+
+      async function fetchUrlAsDataUrl(url) {
+        if (!url || !/^https?:\/\//i.test(url)) {
+          throw new Error('Image fetch failed: missing image URL.');
+        }
+
+        const response = await fetch(url);
+
+        if (!response.ok) {
+          throw new Error(`Image fetch failed (${response.status}).`);
+        }
+
+        const blob = await response.blob();
+        return await blobToDataUrl(blob);
+      }
+
+      async function ackImage(backendUrl, sessionId, id) {
+        const response = await fetch(`${backendUrl}/api/images/${encodeURIComponent(id)}/ack`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId })
+        });
+        const body = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(body.error || `Ack failed (${response.status})`);
+        }
+      }
+
+      function blobToDataUrl(blob) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(new Error('Image encoding failed.'));
+          reader.readAsDataURL(blob);
+        });
+      }
+
+      function formatNetworkError(error) {
+        const message = error && error.message ? error.message : 'Unknown error';
+
+        if (/Failed to fetch|NetworkError|Load failed/i.test(message)) {
+          return 'Backend offline or CORS blocked the request. Check the backend URL and CORS settings.';
+        }
+
+        if (message === 'invalid_session_id') {
+          return 'Invalid sessionId. Use the same valid sessionId in extension and plugin.';
+        }
+
+        return message;
+      }
+
+      function setStatus(text) {
+        statusNode.textContent = text;
+      }
+    </script>
+  </body>
+</html>

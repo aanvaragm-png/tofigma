@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Pinterest to Figma References",
+  "version": "1.0.0",
+  "description": "Send images from any website to your Figma plugin through a cloud backend.",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Pinterest to Figma",
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html"
+}
